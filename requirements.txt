@@ -1,0 +1,10 @@
+python-fasthtml
+sqlite-vss
+sentence-transformers
+arxiv
+requests
+numpy<2
+torch
+transformers<4.45
+feedparser
+python-dateutil

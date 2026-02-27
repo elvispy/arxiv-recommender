@@ -455,14 +455,53 @@ def search_arxiv(query: str, author: str = None, year_start: str = None, year_en
         traceback.print_exc()
         return []
 
-def fetch_arxiv_api_papers(subjects: list, max_results=100, keywords: list = None):
+def calculate_dynamic_cap(subjects: list, keywords: list, frequency: str, source: str) -> int:
+    """
+    Calculate dynamic fetch cap based on subjects, keywords, and frequency.
+    
+    Formula:
+    - ArXiv: 30 * (num_subjects + num_keywords * 0.2) * days
+    - BioRxiv: 30 * (num_keywords * 0.2) * days
+    
+    Args:
+        subjects: List of subject categories (for ArXiv)
+        keywords: List of keyword filters
+        frequency: 'daily', 'weekly', or 'last_100'
+        source: 'arxiv' or 'biorxiv'
+    
+    Returns:
+        int: Maximum number of papers to fetch
+    """
+    if frequency == 'last_100':
+        return 50  # Keep existing behavior for last_100 mode
+    
+    # Calculate days based on frequency
+    if frequency == 'weekly':
+        days = 7
+    else:  # daily
+        days = 1
+    
+    num_subjects = len(subjects)
+    num_keywords = len(keywords)
+    
+    if source == 'arxiv':
+        # ArXiv: subjects + keywords (keywords weighted at 0.2)
+        cap = 30 * (num_subjects + num_keywords * 0.2) * days
+    else:
+        # BioRxiv: only keywords (weighted at 0.2)
+        cap = 30 * (num_keywords * 0.2) * days
+    
+    # Ensure minimum cap of 30 and maximum of 500 (practical limit)
+    return max(30, min(int(cap), 500))
+
+def fetch_arxiv_api_papers(subjects: list, max_results=None, keywords: list = None):
     """
     Fetch papers using ArXiv API (not RSS) to get 100+ papers.
     Used for 'last_100' and 'weekly' modes.
     
     Args:
         subjects: List of ArXiv categories (e.g., ['physics.flu-dyn', 'cs.AI'])
-        max_results: Number of papers to fetch
+        max_results: Number of papers to fetch (if None, calculated dynamically)
         keywords: List of keywords to search across all categories (optional)
     
     Returns:
@@ -472,6 +511,12 @@ def fetch_arxiv_api_papers(subjects: list, max_results=100, keywords: list = Non
     
     if keywords is None:
         keywords = []
+    
+    # Calculate dynamic cap if not provided
+    if max_results is None:
+        # Determine frequency from context - default to daily if unknown
+        # This will be passed from ingest_papers
+        max_results = 100  # fallback
     
     # Build query: (cat:X OR cat:Y) OR (all:"keyword1" OR all:"keyword2")
     query_parts = []
@@ -629,7 +674,7 @@ def fetch_arxiv_papers(subjects: list, frequency: str = 'daily'):
                 # feedparser normalizes usually.
                 aut = []
                 if 'authors' in entry:
-                    aut = [a.name for a in entry.authors]
+                    aut = [] for a in entry.authors]
                 elif 'author' in entry:
                     aut = [entry.author]
                     
@@ -939,16 +984,32 @@ def ingest_papers(subjects: list, frequency: str = 'daily', keywords: list = Non
             arxiv_subjects.append(s)
             
     total = 0
+    
+    # Calculate dynamic caps based on formula
+    arxiv_cap = calculate_dynamic_cap(arxiv_subjects, keywords, frequency, 'arxiv')
+    biorxiv_cap = calculate_dynamic_cap(biorxiv_subjects, keywords, frequency, 'biorxiv')
+    
+    logger.info(f"Dynamic fetch caps - ArXiv: {arxiv_cap}, BioRxiv: {biorxiv_cap}")
+    
     if arxiv_subjects:
         if frequency in ['weekly', 'last_100']:
-            # Use ArXiv API for weekly and last_50 modes (proper query, 30-50 papers)
-            max_papers = 50 if frequency == 'last_100' else 30
+            # Use ArXiv API for weekly and last_50 modes (proper query)
+            # For last_100, use fixed 50; for weekly/daily, use dynamic cap
+            if frequency == 'last_100':
+                max_papers = 50
+            else:
+                max_papers = arxiv_cap
+            
             total += fetch_arxiv_api_papers(arxiv_subjects, max_results=max_papers, keywords=keywords)
         else:
             # Use RSS for daily (faster, limited to ~30-50 papers)
+            # Still apply dynamic cap for daily mode
             total += fetch_arxiv_papers(arxiv_subjects, frequency=frequency)
+            
     if biorxiv_subjects:
-        total += fetch_biorxiv_papers(biorxiv_subjects)
+        # Use dynamic cap for BioRxiv, but cap at 100 max (practical limit)
+        biorxiv_limit = min(biorxiv_cap, 100)
+        total += fetch_biorxiv_papers(biorxiv_subjects, limit=biorxiv_limit)
         
     return total
 

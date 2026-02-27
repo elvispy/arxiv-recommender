@@ -373,7 +373,7 @@ def render_feed_content(recommended, recent):
         
         # Show More
         Details(
-            Summary("Show More Papers", cls="btn-primary", style="margin: 30px auto; display: block; width: fit-content; list-style: none; cursor: pointer; color: var(--bg-color);"),
+            Summary("Show More Papers", cls="btn-primary", style="margin: 30px auto; display: block; width: fit-content; list-style: none; cursor: pointer;;;:20px;"),
             Div(
                 *[GridCard(p) for p in more_papers],
                 cls="dashboard-grid",
@@ -606,6 +606,7 @@ def check_feed_status(user_id, conn):
     row = c.fetchone()
     
     now = datetime.datetime.utcnow()
+    today = now.date()
     
     if row:
         last_fetch_str = row['last_fetch_date']
@@ -615,7 +616,11 @@ def check_feed_status(user_id, conn):
         else:
             try:
                 last_fetch = datetime.datetime.fromisoformat(last_fetch_str)
-                if (now - last_fetch).total_seconds() >= 3600 * 24:
+                last_fetch_date = last_fetch.date()
+                
+                # Auto-update once per day (not once every 24 hours)
+                # If last fetch was on a previous calendar day, trigger daily fetch
+                if last_fetch_date < today:
                     return False, True # Daily fetch due
             except:
                 return True, False

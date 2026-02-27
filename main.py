@@ -302,7 +302,7 @@ def GridCard(paper, mode="feed", interaction=None):
             Div(
                 standard_actions,
                 Button("🗑️", 
-                       hx_post=f"/interact/{DEFAULT_USER_ID}/{paper['id']}/remove", 
+                       hx_post=f"/interact/{DEFAULT_USER_ID}/{paper_id}/remove", 
                        hx_target="closest .grid-card", 
                        hx_swap="outerHTML",
                        cls="like-btn like-btn-remove action-btn",

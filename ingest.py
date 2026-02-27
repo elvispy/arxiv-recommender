@@ -494,6 +494,25 @@ def calculate_dynamic_cap(subjects: list, keywords: list, frequency: str, source
     # Ensure minimum cap of 30 and maximum of 500 (practical limit)
     return max(30, min(int(cap), 500))
 
+def embed_paper_local(title, abstract):
+    """
+    Generate embedding locally using the loaded model.
+    """
+    model_dict = get_model()
+    tokenizer = model_dict['tokenizer']
+    model = model_dict['model']
+    
+    sep = tokenizer.sep_token
+    text = f"{title}{sep}{abstract}"
+    
+    inputs = tokenizer(text, padding=True, truncation=True, return_tensors="pt", max_length=512)
+    
+    import torch
+    with torch.no_grad():
+        outputs = model(**inputs)
+        embeddings = outputs.last_hidden_state[:, 0, :]
+        return embeddings[0].numpy()
+
 def fetch_arxiv_api_papers(subjects: list, max_results=None, keywords: list = None):
     """
     Fetch papers using ArXiv API (not RSS) to get 100+ papers.
@@ -674,7 +693,7 @@ def fetch_arxiv_papers(subjects: list, frequency: str = 'daily'):
                 # feedparser normalizes usually.
                 aut = []
                 if 'authors' in entry:
-                    aut = [] for a in entry.authors]
+                    aut = [a.name for a in entry.authors]
                 elif 'author' in entry:
                     aut = [entry.author]
                     
@@ -843,7 +862,7 @@ def search_semantic_scholar(query: str, year: str = None, limit=10):
             papers.append(paper)
             
         # Save papers to database (without embeddings for now - lazy loading)
-        save_papers(papers, compute_embeddings=False)
+        save_papers(papers)
         
         # Return the paper list so they can be rendered
         # Note: We need to add the database 'id' field that save_papers would create

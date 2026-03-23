@@ -508,10 +508,45 @@ def embed_paper_local(title, abstract):
     inputs = tokenizer(text, padding=True, truncation=True, return_tensors="pt", max_length=512)
     
     import torch
+    device = torch.device('cuda' if torch.cuda.is_available() else 'mps' if torch.backends.mps.is_available() else 'cpu')
+    model = model.to(device)
+    inputs = {k: v.to(device) for k, v in inputs.items()}
+    
     with torch.no_grad():
         outputs = model(**inputs)
-        embeddings = outputs.last_hidden_state[:, 0, :]
+        embeddings = outputs.last_hidden_state[:, 0, :].cpu()
         return embeddings[0].numpy()
+
+def embed_papers_local_batch(papers, batch_size=16):
+    """
+    Generate embeddings locally in batches. Returns a list of embeddings.
+    """
+    model_dict = get_model()
+    tokenizer = model_dict['tokenizer']
+    model = model_dict['model']
+    sep = tokenizer.sep_token
+    
+    texts = [f"{p['title']}{sep}{p['abstract']}" for p in papers]
+    
+    import torch
+    device = torch.device('cuda' if torch.cuda.is_available() else 'mps' if torch.backends.mps.is_available() else 'cpu')
+    logger.info(f"Using device: {device} for batched inference")
+    model = model.to(device)
+    all_embeddings = []
+    
+    for i in range(0, len(texts), batch_size):
+        logger.info(f"Generating local embeddings batch {i//batch_size + 1}/{(len(texts) + batch_size - 1)//batch_size}...")
+        batch_texts = texts[i:i+batch_size]
+        inputs = tokenizer(batch_texts, padding=True, truncation=True, return_tensors="pt", max_length=512)
+        inputs = {k: v.to(device) for k, v in inputs.items()}
+        
+        with torch.no_grad():
+            outputs = model(**inputs)
+            embeddings = outputs.last_hidden_state[:, 0, :].cpu().numpy()
+            for emb in embeddings:
+                all_embeddings.append(emb)
+                
+    return all_embeddings
 
 def fetch_arxiv_api_papers(subjects: list, max_results=None, keywords: list = None):
     """
@@ -605,22 +640,28 @@ def fetch_arxiv_api_papers(subjects: list, max_results=None, keywords: list = No
     
     # Inject embeddings with local fallback
     papers_to_save = []
+    missing_ss_papers = []
+    
     for p in candidates:
         pid = f"arxiv:{p['external_id']}"
-        
         if pid in emb_map:
             p['embedding'] = emb_map[pid]
+            papers_to_save.append(p)
         else:
-            # Fallback: Generate local embedding
-            logger.info(f"SS embedding not found for {pid}. Generating locally...")
-            try:
-                local_emb = embed_paper_local(p['title'], p['abstract'])
-                p['embedding'] = local_emb
-            except Exception as e:
-                logger.warning(f"Local embedding failed for {pid}: {e}")
+            missing_ss_papers.append(p)
+
+    if missing_ss_papers:
+        logger.info(f"{len(missing_ss_papers)} SS embeddings not found. Generating locally in batches...")
+        try:
+            local_embeddings = embed_papers_local_batch(missing_ss_papers)
+            for p, emb in zip(missing_ss_papers, local_embeddings):
+                p['embedding'] = emb
+                papers_to_save.append(p)
+        except Exception as e:
+            logger.warning(f"Local batched embedding failed: {e}")
+            for p in missing_ss_papers:
                 p['embedding'] = None
-        
-        papers_to_save.append(p)
+                papers_to_save.append(p)
     
     saved_count = save_papers(papers_to_save)
     logger.info(f"Saved {saved_count} papers via ArXiv API")
@@ -734,22 +775,28 @@ def fetch_arxiv_papers(subjects: list, frequency: str = 'daily'):
         
         # Inject embeddings (with local fallback)
         papers_to_save = []
+        missing_ss_papers = []
+        
         for p in candidates:
-             pid = f"arxiv:{p['external_id']}"
-             
-             if pid in emb_map:
-                 p['embedding'] = emb_map[pid]
-             else:
-                 # Fallback: Generate local embedding if SS failed
-                 logger.info(f"SS embedding not found for {pid}. Generating locally...")
-                 try:
-                     local_emb = embed_paper_local(p['title'], p['abstract'])
-                     p['embedding'] = local_emb
-                 except Exception as e:
-                     logger.warning(f"Local embedding failed for {pid}: {e}")
-                     p['embedding'] = None
-             
-             papers_to_save.append(p)
+            pid = f"arxiv:{p['external_id']}"
+            if pid in emb_map:
+                p['embedding'] = emb_map[pid]
+                papers_to_save.append(p)
+            else:
+                missing_ss_papers.append(p)
+
+        if missing_ss_papers:
+            logger.info(f"{len(missing_ss_papers)} SS embeddings not found. Generating locally in batches...")
+            try:
+                local_embeddings = embed_papers_local_batch(missing_ss_papers)
+                for p, emb in zip(missing_ss_papers, local_embeddings):
+                    p['embedding'] = emb
+                    papers_to_save.append(p)
+            except Exception as e:
+                logger.warning(f"Local batched embedding failed: {e}")
+                for p in missing_ss_papers:
+                    p['embedding'] = None
+                    papers_to_save.append(p)
                  
         saved_count = save_papers(papers_to_save)
         logger.info(f"Ingested {saved_count} new papers.")

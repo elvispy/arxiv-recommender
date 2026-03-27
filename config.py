@@ -100,5 +100,15 @@ SUBJECT_CHOICES = {
         "biorxiv.physiology": "Physiology", "biorxiv.plant_biology": "Plant Biology",
         "biorxiv.scientific_communication": "Scientific Communication", "biorxiv.synthetic_biology": "Synthetic Biology",
         "biorxiv.systems_biology": "Systems Biology", "biorxiv.zoology": "Zoology"
+    },
+    "Publisher Journals (Source of Truth)": {
+        "jfm": "Journal of Fluid Mechanics",
+        "aps.prfluids": "Physical Review Fluids",
+        "aps.prl": "Physical Review Letters",
+        "aps.pre": "Physical Review E",
+        "aps.pra": "Physical Review A",
+        "aps.prb": "Physical Review B",
+        "aps.prc": "Physical Review C",
+        "aps.prd": "Physical Review D"
     }
 }
